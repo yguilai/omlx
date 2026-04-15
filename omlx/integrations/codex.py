@@ -53,51 +53,30 @@ class CodexIntegration(Integration):
         # Parse existing config lines to preserve other settings
         lines = existing_content.splitlines()
         new_lines = []
-        in_any_section = False
-        in_omlx_section = False
-        
-        # Keys to override at the top level
-        top_level_overrides = {
-            "model": f'"{model or "select-a-model"}"',
-            "model_provider": '"omlx"'
-        }
-        
-        # If it is a reasoning model, add reasoning effort
-        is_reasoning = bool(re.search(r'\b(thinking|o1|o3|r1)\b', (model or "").lower()))
-        if is_reasoning:
-            top_level_overrides["model_reasoning_effort"] = '"high"'
-
-        # Keys managed by oMLX that should be removed when not applicable
-        managed_keys = {"model_reasoning_effort"} - set(top_level_overrides.keys())
-
-        seen_keys = set()
+        skip_section = False
 
         for line in lines:
             stripped = line.strip()
             if stripped.startswith("[") and stripped.endswith("]"):
-                in_any_section = True
-                in_omlx_section = (stripped == "[model_providers.omlx]")
-
-            # Handle top-level keys
-            if not in_any_section and "=" in stripped:
-                key = stripped.split("=")[0].strip()
-                if key in top_level_overrides:
-                    new_lines.append(f"{key} = {top_level_overrides[key]}")
-                    seen_keys.add(key)
-                    continue
-                if key in managed_keys:
-                    continue
-            
-            # Skip old oMLX section
-            if in_omlx_section:
+                # Skip old oMLX sections
+                skip_section = stripped in ("[model_providers.omlx]", "[profiles.omlx]")
+                new_lines.append(line)
                 continue
-                
+
+            if skip_section:
+                continue
+
             new_lines.append(line)
 
-        # Add missing top-level keys
-        for key, val in top_level_overrides.items():
-            if key not in seen_keys:
-                new_lines.insert(0, f"{key} = {val}")
+        # Append new oMLX profile section
+        new_lines.append("\n[profiles.omlx]")
+        new_lines.append('model_provider = "omlx"')
+        new_lines.append(f'model = "{model or "select-a-model"}"')
+
+        # If it is a reasoning model, add reasoning effort
+        is_reasoning = bool(re.search(r'\b(thinking|o1|o3|r1)\b', (model or "").lower()))
+        if is_reasoning:
+            new_lines.append('model_reasoning_effort = "high"')
 
         # Append new oMLX provider section
         new_lines.append("\n[model_providers.omlx]")
@@ -108,7 +87,9 @@ class CodexIntegration(Integration):
         config_path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
         print(f"Config updated: {config_path}")
 
-    def launch(self, port: int, api_key: str, model: str, host: str = "127.0.0.1", **kwargs) -> None:
+    def launch(
+        self, port: int, api_key: str, model: str, host: str = "127.0.0.1", **kwargs
+    ) -> None:
         self.configure(port, api_key, model, host=host)
 
         env = os.environ.copy()
@@ -116,6 +97,6 @@ class CodexIntegration(Integration):
 
         args = ["codex"]
         if model:
-            args.extend(["-m", model])
+            args.extend(["-p", "omlx"])
 
         os.execvpe("codex", args, env)

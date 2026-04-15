@@ -49,8 +49,10 @@ class TestCodexIntegration:
 
         assert config_path.exists()
         content = config_path.read_text()
-        assert 'model = "qwen3.5"' in content
+        assert "[profiles.omlx]" in content
         assert 'model_provider = "omlx"' in content
+        assert 'model = "qwen3.5"' in content
+        assert "[model_providers.omlx]" in content
         assert 'base_url = "http://127.0.0.1:8000/v1"' in content
         assert 'env_key = "OMLX_API_KEY"' in content
 
@@ -58,7 +60,9 @@ class TestCodexIntegration:
         codex = CodexIntegration()
         config_path = tmp_path / "codex" / "config.toml"
         with patch.object(CodexIntegration, "CONFIG_PATH", config_path):
-            codex.configure(port=9000, api_key="key", model="test", host="192.168.1.100")
+            codex.configure(
+                port=9000, api_key="key", model="test", host="192.168.1.100"
+            )
 
         content = config_path.read_text()
         assert 'base_url = "http://192.168.1.100:9000/v1"' in content
@@ -92,6 +96,10 @@ model = "should-not-override"
 
 [model_providers.omlx]
 name = "old-omlx"
+
+[profiles.omlx]
+model_provider = "old"
+model = "old-model"
 """
         config_path.write_text(existing)
 
@@ -100,14 +108,15 @@ name = "old-omlx"
             codex.configure(port=8000, api_key="", model="new-model")
 
         content = config_path.read_text()
-        assert 'model = "new-model"' in content
+        assert "[profiles.omlx]" in content
         assert 'model_provider = "omlx"' in content
+        assert 'model = "new-model"' in content
         assert 'other_key = "value"' in content
-        assert '[model_providers.custom]' in content
+        assert "[model_providers.custom]" in content
         assert 'model = "should-not-override"' in content
-        assert '[model_providers.omlx]' in content
+        assert "[model_providers.omlx]" in content
         assert 'name = "oMLX"' in content
-        assert 'old-omlx' not in content
+        assert "old-omlx" not in content
 
     def test_configure_reasoning_model(self, tmp_path):
         config_path = tmp_path / "config.toml"
@@ -130,11 +139,13 @@ name = "old-omlx"
 
     def test_configure_clears_stale_reasoning_flag(self, tmp_path):
         config_path = tmp_path / "config.toml"
-        config_path.write_text(
-            'model = "old-thinking-model"\n'
-            'model_provider = "omlx"\n'
-            'model_reasoning_effort = "high"\n'
-        )
+        old_profile = """\
+[profiles.omlx]
+model_provider = "omlx"
+model = "old-thinking-model"
+model_reasoning_effort = "high"
+"""
+        config_path.write_text(old_profile)
 
         codex = CodexIntegration()
         with patch.object(CodexIntegration, "CONFIG_PATH", config_path):
@@ -161,7 +172,10 @@ class TestOpenCodeIntegration:
 
         assert config_path.exists()
         config = json.loads(config_path.read_text())
-        assert config["provider"]["omlx"]["options"]["baseURL"] == "http://127.0.0.1:8000/v1"
+        assert (
+            config["provider"]["omlx"]["options"]["baseURL"]
+            == "http://127.0.0.1:8000/v1"
+        )
         assert config["provider"]["omlx"]["npm"] == "@ai-sdk/openai-compatible"
         assert config["provider"]["omlx"]["options"]["apiKey"] == "test-key"
         assert config["provider"]["omlx"]["models"]["qwen3.5"]["name"] == "qwen3.5"
@@ -178,7 +192,10 @@ class TestOpenCodeIntegration:
             oc.configure(port=9000, api_key="key", model="test", host="10.0.0.5")
 
         config = json.loads(config_path.read_text())
-        assert config["provider"]["omlx"]["options"]["baseURL"] == "http://10.0.0.5:9000/v1"
+        assert (
+            config["provider"]["omlx"]["options"]["baseURL"]
+            == "http://10.0.0.5:9000/v1"
+        )
 
     def test_configure_preserves_existing(self, tmp_path):
         config_path = tmp_path / "opencode.json"
@@ -202,10 +219,16 @@ class TestOpenCodeIntegration:
         config = json.loads(config_path.read_text())
         # Existing provider preserved
         assert "ollama" in config["provider"]
-        assert config["provider"]["ollama"]["options"]["baseURL"] == "http://localhost:11434/v1"
+        assert (
+            config["provider"]["ollama"]["options"]["baseURL"]
+            == "http://localhost:11434/v1"
+        )
         # omlx provider added
         assert "omlx" in config["provider"]
-        assert config["provider"]["omlx"]["options"]["baseURL"] == "http://127.0.0.1:9000/v1"
+        assert (
+            config["provider"]["omlx"]["options"]["baseURL"]
+            == "http://127.0.0.1:9000/v1"
+        )
         # Other keys preserved
         assert config["logLevel"] == "INFO"
 
@@ -241,8 +264,11 @@ class TestOpenCodeIntegration:
 
         with patch.object(OpenCodeIntegration, "CONFIG_PATH", config_path):
             oc.configure(
-                port=8000, api_key="key", model="qwen3.5",
-                context_window=32768, max_tokens=8192,
+                port=8000,
+                api_key="key",
+                model="qwen3.5",
+                context_window=32768,
+                max_tokens=8192,
             )
 
         config = json.loads(config_path.read_text())
@@ -317,7 +343,10 @@ class TestOpenClawIntegration:
 
         assert config_path.exists()
         config = json.loads(config_path.read_text())
-        assert config["models"]["providers"]["omlx"]["baseUrl"] == "http://127.0.0.1:8000/v1"
+        assert (
+            config["models"]["providers"]["omlx"]["baseUrl"]
+            == "http://127.0.0.1:8000/v1"
+        )
         assert config["models"]["providers"]["omlx"]["api"] == "openai-completions"
         assert config["models"]["providers"]["omlx"]["apiKey"] == "test-key"
         assert config["agents"]["defaults"]["model"]["primary"] == "omlx/qwen3.5"
@@ -330,16 +359,15 @@ class TestOpenClawIntegration:
             ocl.configure(port=9000, api_key="key", model="test", host="192.168.1.100")
 
         config = json.loads(config_path.read_text())
-        assert config["models"]["providers"]["omlx"]["baseUrl"] == "http://192.168.1.100:9000/v1"
+        assert (
+            config["models"]["providers"]["omlx"]["baseUrl"]
+            == "http://192.168.1.100:9000/v1"
+        )
 
     def test_configure_preserves_existing(self, tmp_path):
         config_path = tmp_path / "openclaw.json"
         existing = {
-            "models": {
-                "providers": {
-                    "ollama": {"baseUrl": "http://localhost:11434"}
-                }
-            },
+            "models": {"providers": {"ollama": {"baseUrl": "http://localhost:11434"}}},
             "channels": {"telegram": {"enabled": True}},
         }
         config_path.write_text(json.dumps(existing))
@@ -354,7 +382,10 @@ class TestOpenClawIntegration:
         assert config["channels"]["telegram"]["enabled"] is True
         # omlx added
         assert "omlx" in config["models"]["providers"]
-        assert config["models"]["providers"]["omlx"]["baseUrl"] == "http://127.0.0.1:9000/v1"
+        assert (
+            config["models"]["providers"]["omlx"]["baseUrl"]
+            == "http://127.0.0.1:9000/v1"
+        )
 
     def test_configure_exec_approvals_coding(self, tmp_path):
         approvals_path = tmp_path / "exec-approvals.json"
@@ -507,7 +538,11 @@ class TestPiIntegration:
     def test_configure_preserves_existing(self, tmp_path):
         models_path = tmp_path / "models.json"
         settings_path = tmp_path / "settings.json"
-        models_path.write_text(json.dumps({"providers": {"anthropic": {"baseUrl": "https://api.anthropic.com"}}}))
+        models_path.write_text(
+            json.dumps(
+                {"providers": {"anthropic": {"baseUrl": "https://api.anthropic.com"}}}
+            )
+        )
         settings_path.write_text(json.dumps({"theme": "dark"}))
 
         pi = PiIntegration()
